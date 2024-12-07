@@ -1,115 +1,118 @@
-import Image from "next/image";
-import localFont from "next/font/local";
+import { useState } from "react";
+import UploadCV from "../components/UploadCV";
+import ReviewResults from "../components/ReviewResults";
+import axios from "axios";
 
-const geistSans = localFont({
-  src: "./fonts/GeistVF.woff",
-  variable: "--font-geist-sans",
-  weight: "100 900",
-});
-const geistMono = localFont({
-  src: "./fonts/GeistMonoVF.woff",
-  variable: "--font-geist-mono",
-  weight: "100 900",
-});
+// Utility function to handle retries
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export default function Home() {
+const Home = () => {
+  const [results, setResults] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleUpload = async (file: File) => {
+    // Basic file validation (for example, checking for PDF or DOCX files)
+    if (!file.type.includes("pdf") && !file.type.includes("docx")) {
+      setError("Veuillez télécharger un fichier PDF ou DOCX.");
+      return;
+    }
+
+    setLoading(true); // Start the spinner
+    setError(null); // Clear any previous error
+    setResults(null); // Clear previous results
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const fileContent = reader.result;
+
+      const maxRetries = 3;
+      let attempt = 0;
+      let success = false;
+
+      while (attempt < maxRetries && !success) {
+        try {
+          // POST request to analyze the file
+          const response = await axios.post("/api/analyze", { fileContent });
+
+          // Check if the response data structure is correct
+          if (response.data && response.data.results) {
+            setResults(response.data.results); // Update results if response is valid
+            success = true;
+          } else {
+            setError("La réponse du serveur est invalide. Veuillez réessayer.");
+            break;
+          }
+        } catch (err: any) {
+          if (err.response) {
+            if (err.response.status === 429) {
+              // Retry logic for 429 - too many requests
+              if (attempt < maxRetries - 1) {
+                setError(`Trop de requêtes. Tentative ${attempt + 1} sur ${maxRetries}.`);
+                const retryAfter = err.response.headers["retry-after"] || 2; // Default to 2 seconds if not provided
+                await delay(retryAfter * 1000); // Wait before retrying
+                attempt++;
+              } else {
+                setError("Trop de requêtes. Veuillez réessayer plus tard.");
+                break;
+              }
+            } else if (err.response.status === 500) {
+              setError("Erreur interne du serveur. Veuillez réessayer plus tard.");
+              break;
+            } else {
+              setError("Une erreur s'est produite lors de l'analyse. Veuillez réessayer.");
+              break;
+            }
+          } else {
+            setError("Une erreur de connexion s'est produite. Veuillez vérifier votre connexion.");
+            break;
+          }
+        }
+      }
+
+      setLoading(false); // Stop the spinner after retry attempts
+    };
+
+    // Read file as text
+    reader.readAsText(file);
+  };
+
   return (
-    <div
-      className={`${geistSans.variable} ${geistMono.variable} grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]`}
-    >
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/pages/index.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="flex flex-col min-h-screen">
+      <header className="bg-gradient-to-r from-blue-500 to-indigo-500 p-6 text-white">
+        <div className="container mx-auto text-center">
+          <h1 className="text-4xl font-extrabold">Analyseur de CV avec IA</h1>
+          <p className="mt-2 text-lg">Téléchargez votre CV pour une analyse détaillée instantanée.</p>
         </div>
+      </header>
+      <main className="flex-grow container mx-auto p-6">
+        <div className="bg-white p-8 rounded-xl shadow-lg">
+          <h2 className="text-3xl font-semibold text-indigo-700">Téléchargez votre CV</h2>
+          <UploadCV onUpload={handleUpload} />
+          {loading && (
+            <div className="mt-4 flex justify-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-blue-500"></div>
+            </div>
+          )}
+          {error && (
+            <div className="mt-4 bg-red-100 text-red-800 p-4 rounded">
+              <p>{error}</p>
+            </div>
+          )}
+        </div>
+        {results && (
+          <div className="mt-8 bg-white p-8 rounded-xl shadow-lg">
+            <ReviewResults results={results} />
+          </div>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+      <footer className="bg-gray-800 text-white py-6 mt-auto">
+        <div className="container mx-auto text-center">
+          <p>&copy; {new Date().getFullYear()} Analyseur de CV. Tous droits réservés.</p>
+        </div>
       </footer>
     </div>
   );
-}
+};
+
+export default Home;
